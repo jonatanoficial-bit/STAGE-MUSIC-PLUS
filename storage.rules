@@ -1,0 +1,16 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signed() { return request.auth != null; }
+    function room(id) { return firestore.get(/databases/(default)/documents/liveRooms/$(id)).data; }
+    function org(id) { return room(id).organizationId; }
+    function member(id) { return signed() && firestore.exists(/databases/(default)/documents/organizations/$(org(id))/members/$(request.auth.uid)) && firestore.get(/databases/(default)/documents/organizations/$(org(id))/members/$(request.auth.uid)).data.status == 'active'; }
+    function area(id) { return firestore.get(/databases/(default)/documents/organizations/$(org(id))/members/$(request.auth.uid)).data.area; }
+    match /voice/{roomId}/{target}/{uid}/{clip} {
+      allow read: if member(roomId) && (target == 'all' || target == area(roomId));
+      allow create: if member(roomId) && room(roomId).status != 'ended' && request.auth.uid == uid && (target == 'all' || target in ['band','vocal','projection','lighting','audio','production']) && request.resource.size < 2 * 1024 * 1024 && request.resource.contentType.matches('audio/.*');
+      allow update, delete: if false;
+    }
+    match /{allPaths=**} { allow read, write: if false; }
+  }
+}

@@ -1,0 +1,12 @@
+import { initializeApp, applicationDefault } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+const [uid,action]=process.argv.slice(2);
+if(!uid||!['grant','revoke'].includes(action))throw new Error('Uso: node functions/tools/master.mjs UID grant|revoke');
+initializeApp({credential:applicationDefault()});
+const auth=getAuth(),user=await auth.getUser(uid),claims={...user.customClaims};
+if(action==='grant')claims.masterAdmin=true;else delete claims.masterAdmin;
+await auth.setCustomUserClaims(uid,claims);
+await auth.revokeRefreshTokens(uid);
+await getFirestore().collection('auditLogs').add({actorUid:'server-admin',action:'master-'+action,entity:'user',entityId:uid,timestamp:FieldValue.serverTimestamp(),metadata:{}});
+console.log(`ADM MASTER ${action==='grant'?'concedido':'revogado'} para ${uid}. O usuário deve sair e entrar novamente.`);

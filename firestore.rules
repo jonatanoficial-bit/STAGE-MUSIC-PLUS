@@ -1,0 +1,80 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signed() { return request.auth != null; }
+    function master() { return signed() && request.auth.token.get('masterAdmin', false) == true; }
+    function orgOwner(org) { return signed() && get(/databases/$(database)/documents/organizations/$(org)).data.ownerUid == request.auth.uid; }
+    function member(org) { return signed() && (orgOwner(org) || (exists(/databases/$(database)/documents/organizations/$(org)/members/$(request.auth.uid)) && get(/databases/$(database)/documents/organizations/$(org)/members/$(request.auth.uid)).data.status == 'active')); }
+    function role(org) { return orgOwner(org) ? 'owner' : get(/databases/$(database)/documents/organizations/$(org)/members/$(request.auth.uid)).data.role; }
+    function area(org) { return get(/databases/$(database)/documents/organizations/$(org)/members/$(request.auth.uid)).data.area; }
+    function admin(org) { return member(org) && role(org) in ['owner','admin']; }
+    function director(org) { return member(org) && role(org) in ['owner','admin','director']; }
+    function room(id) { return get(/databases/$(database)/documents/liveRooms/$(id)).data; }
+    function roomMember(id) { return member(room(id).organizationId); }
+    function roomDirector(id) { return director(room(id).organizationId); }
+    function targetAllowed(id,target) { return roomMember(id) && (target == 'all' || target == area(room(id).organizationId)); }
+    function validArea(value) { return value in ['band','vocal','projection','lighting','audio','production']; }
+    match /users/{uid} {
+      allow read: if signed() && request.auth.uid == uid;
+      allow create, update: if signed() && request.auth.uid == uid && request.resource.data.keys().hasOnly(['displayName','email','photoURL','createdAt','lastLoginAt','preferences','defaultInstrument','favorites']) && request.resource.data.displayName is string && request.resource.data.displayName.size() <= 160;
+      allow delete: if false;
+    }
+    match /organizations/{org} {
+      allow get: if member(org);
+      allow list: if signed() && resource.data.ownerUid == request.auth.uid;
+      allow create: if signed() && request.resource.data.ownerUid == request.auth.uid && request.resource.data.keys().hasOnly(['id','name','ownerUid','createdAt','updatedAt']) && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 100;
+      allow update: if admin(org) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name','updatedAt']) && request.resource.data.name is string && request.resource.data.name.size() <= 100;
+      allow delete: if false;
+      match /members/{uid} {
+        allow read: if member(org);
+        allow create, update: if admin(org) && request.resource.data.keys().hasOnly(['id','displayName','role','area','status','updatedAt']) && request.resource.data.id == uid && request.resource.data.displayName is string && request.resource.data.displayName.size() <= 100 && request.resource.data.status in ['active','inactive'] && validArea(request.resource.data.area) && ((orgOwner(org) && ((uid == request.auth.uid && request.resource.data.role == 'owner') || (uid != request.auth.uid && request.resource.data.role in ['admin','director','member']))) || (!orgOwner(org) && uid != request.auth.uid && request.resource.data.role in ['director','member'] && (!exists(/databases/$(database)/documents/organizations/$(org)/members/$(uid)) || resource.data.role in ['director','member'])));
+        allow delete: if admin(org) && uid != get(/databases/$(database)/documents/organizations/$(org)).data.ownerUid && (orgOwner(org) || resource.data.role in ['director','member']);
+      }
+    }
+    match /songs/{id} {
+      allow read: if master() || (resource.data.visibility == 'public' && resource.data.status == 'published');
+      allow create: if master() && validSong() && request.resource.data.createdBy == request.auth.uid && request.resource.data.version == 1;
+      allow update: if master() && validSong() && request.resource.data.createdBy == resource.data.createdBy && request.resource.data.version == resource.data.version + 1;
+      allow delete: if false;
+      function validSong() { return request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 160 && request.resource.data.artist is string && request.resource.data.artist.size() <= 160 && request.resource.data.contentRaw is string && request.resource.data.contentRaw.size() <= 80000 && request.resource.data.bpm is number && request.resource.data.bpm >= 20 && request.resource.data.bpm <= 300 && request.resource.data.status in ['draft','published','archived'] && request.resource.data.visibility == 'public'; }
+    }
+    match /setlists/{id} {
+      allow read: if signed() && (resource.data.createdBy == request.auth.uid || (resource.data.organizationId != '' && member(resource.data.organizationId)));
+      allow create: if signed() && request.resource.data.createdBy == request.auth.uid && validSetlist();
+      allow update: if signed() && resource.data.createdBy == request.auth.uid && request.resource.data.createdBy == resource.data.createdBy && validSetlist();
+      allow delete: if signed() && resource.data.createdBy == request.auth.uid;
+      function validSetlist() { return request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 120 && request.resource.data.items is list && request.resource.data.items.size() <= 100 && (request.resource.data.organizationId == '' || member(request.resource.data.organizationId)); }
+    }
+    match /liveRooms/{id} {
+      allow read: if member(resource.data.organizationId);
+      allow create: if director(request.resource.data.organizationId) && request.resource.data.directorUid == request.auth.uid && request.resource.data.liveRevision == 0 && request.resource.data.currentIndex == 0 && request.resource.data.status == 'live' && validRoom();
+      allow update: if director(resource.data.organizationId) && resource.data.status != 'ended' && request.resource.data.organizationId == resource.data.organizationId && request.resource.data.directorUid == resource.data.directorUid && request.resource.data.setlistId == resource.data.setlistId && request.resource.data.startedAt == resource.data.startedAt && request.resource.data.liveRevision == resource.data.liveRevision + 1 && request.resource.data.updatedAt == request.time && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['items','currentIndex','currentSongId','nextSongId','section','status','liveRevision','updatedAt','songStartedAt','notice','previousKey']) && validRoom();
+      allow delete: if false;
+      function validRoom() { return request.resource.data.items is list && request.resource.data.items.size() > 0 && request.resource.data.items.size() <= 100 && request.resource.data.currentIndex is int && request.resource.data.currentIndex >= 0 && request.resource.data.currentIndex < request.resource.data.items.size() && request.resource.data.liveRevision is int && request.resource.data.status in ['live','paused','ended']; }
+      match /participants/{uid} {
+        allow read: if roomMember(id);
+        allow create, update: if roomMember(id) && request.auth.uid == uid && request.resource.data.keys().hasOnly(['uid','displayName','area','online','lastSeen']) && request.resource.data.uid == uid && request.resource.data.area == area(room(id).organizationId) && request.resource.data.displayName is string && request.resource.data.displayName.size() <= 160 && request.resource.data.online is bool && request.resource.data.lastSeen is number;
+        allow delete: if signed() && uid == request.auth.uid;
+      }
+      match /events/{event} {
+        allow read: if roomMember(id);
+        allow create: if roomDirector(id) && request.resource.data.keys().hasOnly(['type','payload','createdBy','createdAt','revision']) && request.resource.data.createdBy == request.auth.uid && request.resource.data.createdAt == request.time && request.resource.data.revision == getAfter(/databases/$(database)/documents/liveRooms/$(id)).data.liveRevision && request.resource.data.revision == room(id).liveRevision + 1;
+        allow update, delete: if false;
+      }
+      match /messages/{message} {
+        allow read: if targetAllowed(id,resource.data.target);
+        allow create: if roomMember(id) && room(id).status != 'ended' && request.resource.data.keys().hasOnly(['id','uid','displayName','text','target','priority','createdAt','expiresAt','voicePath']) && request.resource.data.uid == request.auth.uid && request.resource.data.displayName is string && request.resource.data.text is string && request.resource.data.text.size() <= 1000 && request.resource.data.priority in ['normal','urgent'] && (request.resource.data.target == 'all' || validArea(request.resource.data.target)) && request.resource.data.createdAt is number && request.resource.data.expiresAt is number && request.resource.data.expiresAt > request.resource.data.createdAt && request.resource.data.expiresAt <= request.resource.data.createdAt + 120000 && (request.resource.data.voicePath == null || (request.resource.data.voicePath is string && request.resource.data.voicePath.matches('voice/' + id + '/' + request.resource.data.target + '/' + request.auth.uid + '/[^/]+')));
+        allow update, delete: if false;
+      }
+    }
+    match /annotations/{id} {
+      allow read: if signed() && (resource.data.uid == request.auth.uid || (resource.data.visibility == 'team' && member(resource.data.organizationId)) || (resource.data.visibility == 'area' && member(resource.data.organizationId) && area(resource.data.organizationId) == resource.data.area) || (resource.data.visibility == 'direction' && director(resource.data.organizationId)));
+      allow create: if signed() && request.resource.data.uid == request.auth.uid && validNote();
+      allow update: if signed() && resource.data.uid == request.auth.uid && request.resource.data.uid == resource.data.uid && validNote();
+      allow delete: if signed() && resource.data.uid == request.auth.uid;
+      function validNote() { return request.resource.data.keys().hasOnly(['id','uid','songId','organizationId','area','visibility','anchor','text','createdAt','updatedAt']) && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 4000 && (request.resource.data.visibility == 'private' || (member(request.resource.data.organizationId) && (request.resource.data.visibility == 'team' || (request.resource.data.visibility == 'area' && request.resource.data.area == area(request.resource.data.organizationId)) || (request.resource.data.visibility == 'direction' && director(request.resource.data.organizationId))))); }
+    }
+    match /auditLogs/{id} { allow read: if master(); allow write: if false; }
+    match /{document=**} { allow read, write: if false; }
+  }
+}

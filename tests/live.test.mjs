@@ -1,0 +1,12 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { updateLive, canDirect, canReadNote } from '../js/core/live.js';
+const base=()=>({id:'r',directorUid:'a',status:'live',liveRevision:0,currentIndex:0,items:[{id:'1',songId:'s1',key:'G'},{id:'2',songId:'s2',key:'D'},{id:'3',songId:'s3',key:'C'}]});
+test('Advance updates NOW NEXT and revision atomically',()=>{const original=base(),r=updateLive(original,{type:'next'},100);assert.equal(r.currentIndex,1);assert.equal(r.currentSongId,'s2');assert.equal(r.nextSongId,'s3');assert.equal(r.liveRevision,1);assert.equal(r.songStartedAt,100);assert.equal(original.currentIndex,0);});
+test('Bounds never leave setlist',()=>{assert.equal(updateLive(base(),{type:'previous'}).currentIndex,0);assert.equal(updateLive(base(),{type:'jump',index:99}).currentIndex,2);});
+test('Reorder preserves the current item',()=>{const r=updateLive(base(),{type:'reorder',from:0,to:2});assert.equal(r.currentIndex,2);assert.equal(r.currentSongId,'s1');assert.equal(r.nextSongId,null);});
+test('Pause and resume',()=>{let r=updateLive(base(),{type:'pause'});assert.equal(r.status,'paused');assert.equal(updateLive(r,{type:'pause'}).status,'live');});
+test('Ended rooms reject further commands',()=>{const r=updateLive(base(),{type:'end'});assert.throws(()=>updateLive(r,{type:'next'}),/encerrada/);});
+test('Live key stores previous key and timed notice',()=>{const r=updateLive(base(),{type:'key',key:'A'},1000);assert.equal(r.items[0].key,'A');assert.equal(r.previousKey,'G');assert.equal(r.notice.expiresAt,13000);});
+test('Director and member roles',()=>{assert.equal(canDirect(base(),{uid:'b'},{role:'member'}),false);assert.equal(canDirect(base(),{uid:'b'},{role:'director'}),true);assert.equal(canDirect(base(),null,null),false);});
+test('Private and area annotations do not leak',()=>{const n={uid:'a',visibility:'private',area:'audio'};assert.equal(canReadNote(n,{uid:'b'},{role:'admin',area:'audio'}),false);assert.equal(canReadNote(n,{uid:'a'},null),true);assert.equal(canReadNote({...n,visibility:'area'},{uid:'b'},{area:'band'}),false);assert.equal(canReadNote({...n,visibility:'area'},{uid:'b'},{area:'audio'}),true);assert.equal(canReadNote({...n,visibility:'direction'},{uid:'b'},{role:'member'}),false);});

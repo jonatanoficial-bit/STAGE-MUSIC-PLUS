@@ -1,7 +1,7 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    function signed() { return request.auth != null; }
+    function signed() { return request.auth != null && request.auth.token.firebase.sign_in_provider == 'google.com'; }
     function room(id) { return firestore.get(/databases/(default)/documents/liveRooms/$(id)).data; }
     function org(id) { return room(id).organizationId; }
     function member(id) { return signed() && firestore.exists(/databases/(default)/documents/organizations/$(org(id))/members/$(request.auth.uid)) && firestore.get(/databases/(default)/documents/organizations/$(org(id))/members/$(request.auth.uid)).data.status == 'active'; }

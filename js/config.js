@@ -1,9 +1,12 @@
-// Firebase Web config is public project identification, never an Admin SDK key.
-// Fill these fields to enable Google login and collaboration across devices.
+// Public Firebase Web configuration. Security is enforced by Firebase rules.
 export const firebaseConfig = {
-  apiKey: '', authDomain: '', projectId: '', storageBucket: '',
-  messagingSenderId: '', appId: ''
+  apiKey: 'AIzaSyCrY_jawl40C_ZFpTUSFRgKJmUKzbKhZ4k',
+  authDomain: 'stage-music-96cc1.firebaseapp.com',
+  projectId: 'stage-music-96cc1',
+  storageBucket: 'stage-music-96cc1.firebasestorage.app',
+  messagingSenderId: '1009564099611',
+  appId: '1:1009564099611:web:cfbf51573da0751a0d44be'
 };
-export const appCheckSiteKey = ''; // reCAPTCHA Enterprise public site key
 export const firebaseVersion = '12.18.0';
-export const useEmulators = false; // Local development only, never on a public host.
+export const appCheckSiteKey = '';
+export const useEmulators = false;

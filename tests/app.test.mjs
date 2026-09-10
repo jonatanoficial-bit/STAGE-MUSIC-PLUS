@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 const html=await readFile(new URL('../index.html',import.meta.url),'utf8');
-const dom=new JSDOM(html,{url:'http://localhost:4173/#/dashboard',pretendToBeVisual:true,runScripts:'outside-only'});
+const dom=new JSDOM(html,{url:'http://localhost:4173/?demo=1#/dashboard',pretendToBeVisual:true,runScripts:'outside-only'});
 for(const key of ['window','document','navigator','localStorage','sessionStorage','location','Event','CustomEvent','FormData'])Object.defineProperty(globalThis,key,{value:dom.window[key],configurable:true,writable:true});
 dom.window.HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','');};
 dom.window.HTMLDialogElement.prototype.close=function(){this.removeAttribute('open');this.dispatchEvent(new dom.window.Event('close'));};

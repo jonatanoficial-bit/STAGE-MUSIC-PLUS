@@ -1,7 +1,7 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signed() { return request.auth != null; }
+    function signed() { return request.auth != null && request.auth.token.firebase.sign_in_provider == 'google.com'; }
     function master() { return signed() && request.auth.token.get('masterAdmin', false) == true; }
     function orgOwner(org) { return signed() && get(/databases/$(database)/documents/organizations/$(org)).data.ownerUid == request.auth.uid; }
     function member(org) { return signed() && (orgOwner(org) || (exists(/databases/$(database)/documents/organizations/$(org)/members/$(request.auth.uid)) && get(/databases/$(database)/documents/organizations/$(org)/members/$(request.auth.uid)).data.status == 'active')); }
@@ -26,13 +26,25 @@ service cloud.firestore {
       allow update: if admin(org) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name','updatedAt']) && request.resource.data.name is string && request.resource.data.name.size() <= 100;
       allow delete: if false;
       match /members/{uid} {
+        function validInvite() {
+          let invite = get(/databases/$(database)/documents/invitations/$(request.resource.data.inviteId)).data;
+          return signed() && uid == request.auth.uid && request.resource.data.keys().hasOnly(['id','displayName','role','area','status','inviteId','updatedAt']) && request.resource.data.id == uid && request.resource.data.displayName is string && request.resource.data.displayName.size() <= 100 && request.resource.data.role == 'member' && request.resource.data.status == 'active' && invite.active == true && invite.organizationId == org && invite.expiresAt > request.time.toMillis() && request.resource.data.area == invite.area && request.resource.data.updatedAt == request.time;
+        }
+        allow create: if validInvite();
         allow read: if member(org);
         allow create, update: if admin(org) && request.resource.data.keys().hasOnly(['id','displayName','role','area','status','updatedAt']) && request.resource.data.id == uid && request.resource.data.displayName is string && request.resource.data.displayName.size() <= 100 && request.resource.data.status in ['active','inactive'] && validArea(request.resource.data.area) && ((orgOwner(org) && ((uid == request.auth.uid && request.resource.data.role == 'owner') || (uid != request.auth.uid && request.resource.data.role in ['admin','director','member']))) || (!orgOwner(org) && uid != request.auth.uid && request.resource.data.role in ['director','member'] && (!exists(/databases/$(database)/documents/organizations/$(org)/members/$(uid)) || resource.data.role in ['director','member'])));
         allow delete: if admin(org) && uid != get(/databases/$(database)/documents/organizations/$(org)).data.ownerUid && (orgOwner(org) || resource.data.role in ['director','member']);
       }
     }
+    match /invitations/{id} {
+      allow get: if signed();
+      allow list: if admin(resource.data.organizationId);
+      allow create: if admin(request.resource.data.organizationId) && request.resource.data.keys().hasOnly(['id','organizationId','organizationName','area','role','createdBy','active','expiresAt','updatedAt']) && request.resource.data.id == id && request.resource.data.createdBy == request.auth.uid && request.resource.data.role == 'member' && request.resource.data.active == true && validArea(request.resource.data.area) && request.resource.data.organizationName is string && request.resource.data.organizationName.size() <= 100 && request.resource.data.expiresAt is number && request.resource.data.expiresAt > request.time.toMillis() && request.resource.data.expiresAt <= request.time.toMillis() + 604800000;
+      allow update: if admin(resource.data.organizationId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['active','updatedAt']) && request.resource.data.active == false;
+      allow delete: if false;
+    }
     match /songs/{id} {
-      allow read: if master() || (resource.data.visibility == 'public' && resource.data.status == 'published');
+      allow read: if master() || (signed() && resource.data.visibility == 'public' && resource.data.status == 'published');
       allow create: if master() && validSong() && request.resource.data.createdBy == request.auth.uid && request.resource.data.version == 1;
       allow update: if master() && validSong() && request.resource.data.createdBy == resource.data.createdBy && request.resource.data.version == resource.data.version + 1;
       allow delete: if false;

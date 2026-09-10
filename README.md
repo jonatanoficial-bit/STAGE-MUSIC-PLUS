@@ -1,6 +1,6 @@
 # Stage Music
 
-**Versão 1.0.0 — entrega funcional inicial.** Aplicativo web de cifras, repertórios e direção musical ao vivo, em português, com HTML, CSS e JavaScript modular.
+**Versão 2.0.0 — Firebase, Google Login e Sala Live.** Aplicativo web de cifras, repertórios e direção musical ao vivo, em português, com HTML, CSS e JavaScript modular.
 
 O ZIP contém o projeto inteiro desta versão: fontes, aplicativo estático em `dist/`, regras Firebase, funções administrativas, testes, documentação, arquivos de publicação e scripts de build/release. O escopo amplo do PDF de referência e os limites desta versão estão descritos em [docs/ESCOPO.md](docs/ESCOPO.md). Não se trata de uma declaração de conclusão de todas as funcionalidades futuras do documento.
 
@@ -16,7 +16,18 @@ O ZIP contém o projeto inteiro desta versão: fontes, aplicativo estático em `
 
 4. Abra **http://127.0.0.1:4173**.
 
-A demonstração abre sem conta Firebase e sem instalar bibliotecas. Não abra `index.html` por duplo clique: módulos JavaScript precisam de servidor HTTP. As ferramentas de teste e de ZIP só são necessárias para desenvolver e gerar outra entrega.
+O aplicativo publicado usa Firebase e login exclusivamente com Google. Para testar a demonstração local sem conta, abra `http://127.0.0.1:4173/?demo=1`. Não abra `index.html` por duplo clique: módulos JavaScript precisam de servidor HTTP.
+
+## Cadastrar uma cifra rapidamente
+
+1. Entre como ADM MASTER e abra **Biblioteca → Nova cifra**.
+2. Copie a cifra que você tem autorização para usar, cole no campo grande e use **Reconhecer cabeçalho e acordes**.
+3. Confira título, artista, tom e a prévia; linhas com uma letra isolada recebem um aviso para revisão.
+4. Publique ou use **Publicar e adicionar outra**. O texto colado originalmente permanece guardado para conferência, junto do link e dos créditos opcionais da fonte.
+
+## Equipes e Sala Live entre dispositivos
+
+O administrador cria a equipe, abre **Convidar por link** e escolhe a área. A pessoa convidada entra com Google, abre o link e recebe apenas a função de membro nessa área. Diretores e administradores iniciam a Sala Live; todos os membros acompanham a música, tom, avisos e presença em tempo real.
 
 O modo de demonstração utiliza músicas fictícias originais, quatro itens de repertório e perfis simulados. Nenhum desses perfis concede acesso ao Firebase. Favoritos, repertórios e anotações são gravados no navegador. Não use a demonstração para dados confidenciais: quem acessa o mesmo perfil de navegador pode acessar o armazenamento local.
 

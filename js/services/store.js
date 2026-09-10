@@ -4,7 +4,7 @@ import { updateLive, canDirect, canReadNote } from '../core/live.js';
 const demoKey='stage-music-demo-v1';
 const clone=x=>structuredClone(x);
 const uid=()=>crypto.randomUUID();
-export const configured=!!firebaseConfig.projectId && !!firebaseConfig.apiKey;
+export const configured=!!firebaseConfig.projectId && !!firebaseConfig.apiKey && !(typeof location!=='undefined'&&['localhost','127.0.0.1'].includes(location.hostname)&&new URLSearchParams(location.search).get('demo')==='1');
 export const state={mode:configured?'firebase':'demo',user:null,claims:{},member:null,organization:null,connected:navigator.onLine};
 let sdk,auth,db,storage,channels=new Map(),authStop;
 function initial(){return {songs:Object.fromEntries(demoSongs.map(s=>[s.id,s])),setlists:{'ensaio-aurora':demoSetlist()},liveRooms:{},annotations:{},organizations:{'demo-team':{id:'demo-team',name:'Coletivo Aurora',ownerUid:'demo-director'}},members:{'demo-team':{'demo-director':{id:'demo-director',role:'owner',area:'band',displayName:'Direção Demo'},'demo-band':{id:'demo-band',role:'member',area:'band',displayName:'Banda Demo'},'demo-vocal':{id:'demo-vocal',role:'member',area:'vocal',displayName:'Vocal Demo'},'demo-projection':{id:'demo-projection',role:'member',area:'projection',displayName:'Projeção Demo'},'demo-audio':{id:'demo-audio',role:'member',area:'audio',displayName:'Áudio Demo'},'demo-lighting':{id:'demo-lighting',role:'member',area:'lighting',displayName:'Luz Demo'},'demo-production':{id:'demo-production',role:'member',area:'production',displayName:'Produção Demo'}}},messages:{},participants:{}};}
@@ -28,7 +28,7 @@ export async function init(onAuth){
   }catch(e){throw new Error('Não foi possível conectar ao Firebase. Confira js/config.js e a conexão. '+e.message);}
 }
 export function setDemoUser(id){const d=read();const m=d.members['demo-team'][id]||d.members['demo-team']['demo-band'];state.user={uid:m.id,displayName:m.displayName};state.claims={masterAdmin:id==='demo-director'};state.member=m;state.organization=d.organizations['demo-team'];sessionStorage.setItem('stage-demo-user',m.id);}
-export async function login(){if(state.mode==='demo')return;await sdk.signInWithPopup(auth,new sdk.GoogleAuthProvider());}
+export async function login(){if(state.mode==='demo')return;const provider=new sdk.GoogleAuthProvider();provider.setCustomParameters({prompt:'select_account'});try{await sdk.signInWithPopup(auth,provider);}catch(err){const errors={'auth/popup-blocked':'Permita a janela de login Google neste navegador e tente novamente.','auth/unauthorized-domain':'Este endereço ainda não está autorizado no Firebase Authentication. Use o endereço oficial do aplicativo.','auth/popup-closed-by-user':'O login foi fechado. Clique em Entrar com Google para tentar novamente.'};throw new Error(errors[err.code]||err.message);}}
 export async function logout(){if(auth)await sdk.signOut(auth);}
 export function me(){if(!state.user)throw new Error('Entre com sua conta Google para continuar.');return state.user.uid;}
 export function master(){return state.claims.masterAdmin===true;}
@@ -43,7 +43,7 @@ export async function save(collection, data){
   if(state.mode==='demo'){await mutate(d=>{d[collection]??={};d[collection][id]=value;});return value;}
   await sdk.setDoc(sdk.doc(db,collection,id),value);return value;
 }
-export async function saveSong(data){const existing=data.id?await get('songs',data.id):null;return save('songs',{...data,createdBy:existing?.createdBy||me(),version:(existing?.version||0)+1,history:[...(existing?.history||[]).slice(-19),{uid:me(),at:Date.now(),status:data.status}],contentOriginal:existing?.contentOriginal||data.contentRaw});}
+export async function saveSong(data){const existing=data.id?await get('songs',data.id):null;return save('songs',{...data,createdBy:existing?.createdBy||me(),version:(existing?.version||0)+1,history:[...(existing?.history||[]).slice(-19),{uid:me(),at:Date.now(),status:data.status}],contentOriginal:existing?.contentOriginal||data.contentOriginal||data.contentRaw});}
 export async function mySetlists(){return list('setlists',[['createdBy','==',me()]],200);}
 export async function songs(){const result=await list('songs',master()?[]:[['status','==','published'],['visibility','==','public']],500);return result.filter(s=>master()||s.status==='published');}
 export async function favorite(id){const key='stage-favorites-'+me(),arr=JSON.parse(localStorage.getItem(key)||'[]'),set=new Set(arr);set.has(id)?set.delete(id):set.add(id);localStorage.setItem(key,JSON.stringify([...set]));if(state.mode==='firebase')await sdk.setDoc(sdk.doc(db,'users',me()),{favorites:[...set]},{merge:true});return [...set];}
@@ -53,7 +53,7 @@ export async function organizations(){if(state.mode==='demo')return list('organi
 export async function selectOrganization(id){const org=await get('organizations',id);if(!org)throw new Error('Equipe não encontrada.');let member;
   if(state.mode==='demo')member=read().members[id]?.[me()];else {const snap=await sdk.getDoc(sdk.doc(db,'organizations',id,'members',me()));member=snap.exists()?snap.data():null;}
   if(org.ownerUid===me())member={...member,role:'owner',area:member?.area||'band'};
-  if(!member)throw new Error('Solicite ao administrador da equipe que adicione seu UID.');state.organization=org;state.member=member;
+  if(!member||member.status==='inactive')throw new Error('Solicite ao administrador da equipe que adicione seu UID.');state.organization=org;state.member=member;
   let ids=JSON.parse(localStorage.getItem('stage-orgs-'+me())||'[]');localStorage.setItem('stage-orgs-'+me(),JSON.stringify([...new Set([...ids,id])]));return org;
 }
 export async function createOrganization(name){const org=await save('organizations',{name,ownerUid:me(),createdAt:Date.now()});await setMember(org.id,{id:me(),displayName:state.user.displayName,role:'owner',area:'band'});await selectOrganization(org.id);return org;}
@@ -104,3 +104,18 @@ export async function uploadVoice(roomId,blob,target){
 }
 export async function voiceBlob(path){if(state.mode==='demo')return new Promise((resolve,reject)=>{const req=indexedDB.open('stage-voice',1);req.onerror=()=>reject(req.error);req.onsuccess=()=>{const d=req.result;if(!d.objectStoreNames.contains('clips'))return reject(new Error('Áudio não disponível neste navegador.'));const q=d.transaction('clips').objectStore('clips').get(path);q.onsuccess=()=>{d.close();q.result?resolve(q.result):reject(new Error('Áudio local não encontrado.'));};q.onerror=()=>reject(q.error);};});return sdk.getBlob(sdk.ref(storage,path));}
 export function backup(){if(state.mode!=='demo')throw new Error('Exportação disponível para os dados locais da demonstração.');return JSON.stringify({schema:1,exportedAt:new Date().toISOString(),data:read()},null,2);}
+
+export async function createInvitation(area='band'){
+  const org=state.organization;
+  if(!org||!['owner','admin'].includes(state.member?.role))throw new Error('Somente administradores podem convidar novos membros.');
+  return save('invitations',{organizationId:org.id,organizationName:org.name,area,role:'member',createdBy:me(),active:true,expiresAt:Date.now()+7*24*3600*1000});
+}
+export async function acceptInvitation(id){
+  const invite=await get('invitations',id);
+  if(!invite||!invite.active||invite.expiresAt<=Date.now())throw new Error('Convite expirado ou desativado. Solicite um novo link.');
+  try{await selectOrganization(invite.organizationId);return invite;}catch{}
+  const m={id:me(),displayName:state.user.displayName.slice(0,100),role:'member',area:invite.area,status:'active',inviteId:id};
+  if(state.mode==='demo')await mutate(d=>{d.members[invite.organizationId]??={};d.members[invite.organizationId][me()]=m;});
+  else await sdk.setDoc(sdk.doc(db,'organizations',invite.organizationId,'members',me()),{...m,updatedAt:sdk.serverTimestamp()});
+  await selectOrganization(invite.organizationId);return invite;
+}
